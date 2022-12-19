@@ -6,7 +6,6 @@ import torch
 from torch.optim.lr_scheduler import _LRScheduler
 
 
-
 def extract_x_from_param(par_name, x_template):
     pattern = re.compile(x_template)
     match = pattern.search(par_name)
@@ -84,6 +83,10 @@ class BaseXTScheduler(_LRScheduler):
 
     def get_lr(self):
         raise NotImplementedError
+
+    @property
+    def optimizer(self):
+        return self.optimizer
 
 
 class LambdaXTScheduler(BaseXTScheduler):

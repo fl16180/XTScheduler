@@ -1,3 +1,5 @@
+import argparse
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -7,7 +9,6 @@ from torchvision.models import resnet
 
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib
 
 from scheduler import LambdaXTScheduler, CosineXTScheduler
 
@@ -56,32 +57,34 @@ def eval_model(model, data_loader, **kwargs):
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--model', '-m', default='resnet18')
+    parser.add_argument('--eval', default='dev', choices=['dev', 'test'])
+    args = parser.parse_args()
+
     transform = torchvision.transforms.Compose([
         torchvision.transforms.ToTensor(),
         torchvision.transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
     ])
     train_ds = torchvision.datasets.CIFAR10('./', train=True, download=True,
                                             transform=transform)
-    test_ds = torchvision.datasets.CIFAR10('./', train=False, download=False,
+    if args.eval == 'dev':
+        train_ds, test_ds = torch.utils.data.random_split(train_ds, [50000, 10000])  
+    else:
+        test_ds = torchvision.datasets.CIFAR10('./', train=False, download=False,
                                             transform=transform)
-    def worker_init_fn(worker_id):                                                          
-        np.random.seed(np.random.get_state()[1][0] + worker_id)
 
     train_loader = torch.utils.data.DataLoader(
-        train_ds, batch_size=256, shuffle=True, num_workers=4,
-        worker_init_fn=worker_init_fn)
-
-    # also make dev loader
+        train_ds, batch_size=256, shuffle=True, num_workers=4)
 
     test_loader = torch.utils.data.DataLoader(
-        test_ds, batch_size=256, shuffle=False, num_workers=4,
-        worker_init_fn=worker_init_fn)
+        test_ds, batch_size=256, shuffle=False, num_workers=4
 
 
-    model = load_model('resnet18').to(DEVICE)
+    model = load_model(args.model).to(DEVICE)
 
     xts = LambdaXTScheduler(model, torch.optim.Adam, {},
-        nx=4, nt=50, x_pulses=0.5, t_pulses=3)
+        xt_func=lambda x, t: 0.001)
     opt = xts.optimizer
 
 
