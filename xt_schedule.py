@@ -78,15 +78,14 @@ class BaseXTScheduler(_LRScheduler):
             out[x] = par_group
         return out
 
+    def get_optimizer(self):
+        return self.optimizer
+
     def set_xt_params(self, **kwargs):
         raise NotImplementedError
 
     def get_lr(self):
         raise NotImplementedError
-
-    @property
-    def optimizer(self):
-        return self.optimizer
 
 
 class LambdaXTScheduler(BaseXTScheduler):
