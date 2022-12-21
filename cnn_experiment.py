@@ -21,15 +21,15 @@ DEVICE = 'cuda'
 
 def load_model(model_name):
     if model_name == 'resnet18':
-        model = ResNet18()
+        model = ResNet18(num_classes=100)
     elif model_name == 'resnet20':
-        model = resnet20()
+        model = resnet20(num_classes=100)
     else:
         raise NotImplementedError
     return model
 
 
-def train(model, train_loader, optimizer, **kwargs):
+def train(model, train_loader, optimizer, scheduler, step_on_batch, **kwargs):
     ''' train model on train set in train_loader '''
     model.train()
     loss_fn = nn.CrossEntropyLoss()
@@ -43,6 +43,8 @@ def train(model, train_loader, optimizer, **kwargs):
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+        if step_on_batch:
+            scheduler.step()
 
 
 def eval_model(model, data_loader, **kwargs):
@@ -115,7 +117,6 @@ if __name__ == '__main__':
     model = load_model(args.model).to(DEVICE)
 
 
-
     # --------- Handle optimization options ---------- #
     class DummySchedule:
         def __init__(self, *args, **kwargs):
@@ -131,7 +132,7 @@ if __name__ == '__main__':
     if args.version == 'exp':
         xtfunc = lambda x, t: 0.05 * 0.1 ** (t / 100)
 
-        scheduler = LambdaXTScheduler(model, torch.optim.SGD, {'lr': 0.1, 'momentum': 0.9, 'weight_decay': 5e-4},
+        scheduler = LambdaXTScheduler(model, torch.optim.SGD, {'lr': 0.1, 'momentum': 0.9},
             xt_func=xtfunc)
         # scheduler = CosineXTScheduler(model, torch.optim.SGD, {'lr': 0.1, 'momentum': 0.9, 'weight_decay': 5e-4},
         #     nx=4, nt=200, lr_min=1e-5, lr_max=0.1, x_pulses=0.5, t_pulses=1)
@@ -139,44 +140,46 @@ if __name__ == '__main__':
 
     if args.version == 'cosine':
 
-        opt = torch.optim.SGD(model.parameters(), lr=0.1, momentum=0.9, weight_decay=5e-4)
+        opt = torch.optim.SGD(model.parameters(), lr=0.1, momentum=0.9)
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=200)
 
     elif args.version == 'xts':
-        # def sched(x, t):
-        #     if t < 60:
-        #         lr = 0.1
-        #     elif t < 120:
-        #         lr = 0.1 * 0.2
-        #     elif t < 160:
-        #         lr = 0.1 * 0.2 * 0.2
-        #     return lr
         import math
         per_x = 4 / 0.5
         per_t = 200 / 0.5
         c = 2 * np.pi
-        xtfunc = lambda x, t: (0.1) * (math.cos(c * (x / per_x + t / per_t)) + 1) / 2 * 0.1 ** (t / 100)
+        xtfunc = lambda x, t: (0.1) * (math.cos(c * (x / per_x + t / per_t)) + 1) / 2 * 0.1 ** (t / 100) + 0.0001
 
-        scheduler = LambdaXTScheduler(model, torch.optim.SGD, {'lr': 0.1, 'momentum': 0.9, 'weight_decay': 5e-4},
+        scheduler = LambdaXTScheduler(model, torch.optim.SGD, {'lr': 0.1, 'momentum': 0.9},
             xt_func=xtfunc)
         # scheduler = CosineXTScheduler(model, torch.optim.SGD, {'lr': 0.1, 'momentum': 0.9, 'weight_decay': 5e-4},
         #     nx=4, nt=200, lr_min=1e-5, lr_max=0.1, x_pulses=0.5, t_pulses=1)
         opt = scheduler.get_optimizer()
 
+    # elif args.version == 'xts_tri':
+    #     raise NotImplementedError
+    #     # not complete, haven't figured out the math 
+    #     def xtfunc(x, t):
+    #         base_lr = 0.0001
+    #         max_lr = 0.1
+    #         step_size = 2000
+    #         cycle = np.floor(1 + t/(2 * step_size))
+    #         p = np.abs(t/step_size + x/10 - 2*cycle + 1)
+    #         return base_lr + (max_lr-base_lr)*np.maximum(0, (1-p))/float(2**(cycle-1))
 
+    #     scheduler = LambdaXTScheduler(model, torch.optim.SGD, {'lr': 0.1, 'momentum': 0.9},
+    #         xt_func=xtfunc)
+
+    STEP_ON_BATCH = True if args.version == 'xts_tri' else False
     for epoch in range(200):
         # print(opt.param_groups[0]['lr'])
 
-        train(model, train_loader, opt)
+        train(model, train_loader, opt, scheduler, STEP_ON_BATCH)
         acc = eval_model(model, test_loader)
         print('Epoch: ', epoch, 'Acc: ', acc.item())
-        scheduler.step()
+
+        if not STEP_ON_BATCH:
+            scheduler.step()
 
         tracker.add(epoch, 'Acc', acc.item())
         tracker.export()
-
-    # xts = CosineXTScheduler(model, torch.optim.Adam, {},
-        # nx=4, nt=10, x_pulses=2, t_pulses=2)
-
-    # print(xts.get_group_par_names())
-    # opt = xts.optimizer
